@@ -1,0 +1,877 @@
+volumes:
+  mysql_data: null
+  db_data: null
+  mealie-data: null
+  config: null
+  kapowarr-db: null
+  caddy_data: null
+networks:
+  media-net:
+    driver: bridge
+  sparkyfitness-network:
+    driver: bridge
+  matrix_net:
+    driver: bridge
+  seafile-net:
+    driver: bridge
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    entrypoint: ["/bin/sh", "/app/config/homepage-entrypoint.sh"]
+    command: ["node", "server.js"]
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "100"
+      TZ: America/Chicago
+      HOMEPAGE_ALLOWED_HOSTS: ${REDACTED_IP}:3002,${REDACTED_IP}:3002,localhost:3002
+    ports:
+    - 3002:3000
+    volumes:
+    - /srv/homelab/Docker/homepage:/app/config
+    - /MediaVault:/MediaVault:ro
+    - /srv/homelab/Docker/sonarr/config/config.xml:/run/homepage-secrets/sonarr.xml:ro
+    - /srv/homelab/Docker/radarr/config/config.xml:/run/homepage-secrets/radarr.xml:ro
+    - /srv/homelab/Docker/lidarr/config/config.xml:/run/homepage-secrets/lidarr.xml:ro
+    - /srv/homelab/Docker/prowlarr/config/config.xml:/run/homepage-secrets/prowlarr.xml:ro
+
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    container_name: audiobookshelf
+    mem_limit: 1g
+    environment:
+    - PUID=1000
+    - PGID=1000
+    - TZ=America/Chicago
+    ports:
+    - 13378:80
+    volumes:
+    - /srv/media/Books/Manga:/Manga
+    - /srv/media/Books/Magazines:/Magazines
+    - /srv/media/Books/EBooks:/Ebooks
+    - /srv/media/Books/Comics:/Comics
+    - /srv/media/Podcasts:/Podcasts
+    - /srv/media/Books/Audiobooks:/audiobooks
+    - /srv/homelab/Docker/audiobookshelf/metadata:/metadata
+    - /srv/homelab/Docker/audiobookshelf/config:/config
+    networks:
+    - media-net
+    restart: unless-stopped
+  metube:
+    image: ghcr.io/alexta69/metube
+    container_name: metube
+    restart: unless-stopped
+    ports:
+    - 8081:8081
+    volumes:
+    - /srv/media/Sort/youtube-dl:/downloads
+    - /srv/media/Docker/cookies:/cookies:ro
+    environment:
+    - YTDL_OPTIONS={"cookiefile":"/cookies/cookies.txt"}
+  kavita:
+    image: jvmilazz0/kavita:latest
+    container_name: kavita
+    volumes:
+    - /srv/media/Books/Manga:/manga
+    - /srv/media/Books/Comics:/comics
+    - /srv/media/Books/Magazines:/magazines
+    - /srv/media/Books/Strategy_Guide:/Strategy_Guide
+    - /srv/homelab/Docker/kavita/data:/kavita/config
+    environment:
+    - TZ=America/Chicago
+    ports:
+    - 5000:5000
+    networks:
+    - media-net
+    restart: unless-stopped
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:latest
+    container_name: mealie
+    restart: always
+    ports:
+    - 9925:9000
+    deploy:
+      resources:
+        limits:
+          memory: 1000M
+    volumes:
+    - /srv/homelab/Docker/mealie/mealie-data:/app/data/
+    environment:
+      ALLOW_SIGNUP: 'false'
+      PUID: 1000
+      PGID: 1000
+      TZ: America/Chicago
+      BASE_URL: http://${REDACTED_IP}:9925
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    # ErsatzTV live channels can require a little over 1 GiB for Jellyfin's
+    # FFmpeg remux/transcode process; leave enough headroom to avoid cgroup OOM kills.
+    mem_limit: 3g
+    memswap_limit: 4g
+    ports:
+    - 8096:8096
+    - 8920:8920
+    networks:
+    - media-net
+    volumes:
+    - /srv/homelab/Docker/jellyfin/config:/config
+    - /srv/homelab/Docker/jellyfin/cache:/cache
+    - /srv/homelab/Docker/jellyfin/transcodes:/cache/transcodes
+    - /srv/media:/MediaRaid
+    - /srv/media:/medialibrary
+    - /srv/media/Docker/Youtarr:/Youtube
+    - /srv/homelab/downloads/library:/downloads:ro
+    environment:
+    - TZ=America/Chicago
+    - PUID=1000
+    - PGID=1000
+    - NVIDIA_VISIBLE_DEVICES=all
+    - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+    devices:
+    - nvidia.com/gpu=all
+    restart: unless-stopped
+
+  ersatztv:
+    image: ghcr.io/ersatztv/legacy:latest
+    container_name: ersatztv
+    restart: unless-stopped
+    environment:
+    - TZ=America/Chicago
+    - NVIDIA_VISIBLE_DEVICES=all
+    - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+    ports:
+    - 8409:8409
+    volumes:
+      - /srv/homelab/Docker/ersatztv/config:/config
+      - /srv/media/Movies:/media/Movies:ro
+      - /srv/media/Music Videos:/media/Music Videos:ro
+      - /srv/media/Shows:/media/Shows:ro
+      - /srv/media/Anime:/media/Anime:ro
+      - /srv/media/Anime-Movies:/media/Anime-Movies:ro
+      - /srv/media/Comedy:/media/Comedy:ro
+      - /srv/media/Docker/ErsatzTV/bumpers:/media/MTV-Bumpers:ro
+      - /srv/media/Docker/ErsatzTV:/etv-90s:ro
+    networks:
+    - media-net
+    devices:
+    - nvidia.com/gpu=all
+    tmpfs:
+    - /transcode
+
+  cliparr:
+    image: ghcr.io/techsquidtv/cliparr:latest
+    container_name: cliparr
+    restart: unless-stopped
+    user: "1000:100"
+    env_file:
+    - /srv/homelab/Docker/cliparr/cliparr.env
+    environment:
+      TZ: America/Chicago
+      CLIPARR_DATA_DIR: /data
+    ports:
+    - 7171:7171
+    volumes:
+    - /srv/homelab/Docker/cliparr/data:/data
+    - /srv/media/Docker/cliparr:/clips
+    networks:
+    - media-net
+
+
+  jellyseerr:
+    image: ghcr.io/seerr-team/seerr:v3.3.0
+    container_name: jellyseerr
+    restart: unless-stopped
+    environment:
+    - TZ=America/Chicago
+    - LOG_LEVEL=info
+    ports:
+    - 5055:5055
+    volumes:
+    - /srv/homelab/Docker/jellyseerr/config:/app/config
+    extra_hosts:
+    - host.docker.internal:host-gateway
+    networks:
+    - media-net
+
+  lidseeker:
+    image: ghcr.io/ivorycobra-vc/lidseeker:latest
+    container_name: lidseeker
+    restart: unless-stopped
+    user: "1000:100"
+    env_file:
+    - /srv/homelab/Docker/lidseeker/lidseeker.env
+    ports:
+    - 5057:5056
+    volumes:
+    - /srv/homelab/Docker/lidseeker/data:/data
+    depends_on:
+    - lidarr
+    networks:
+    - media-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5056/api/health')"]
+      interval: 1m
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  lidarr-youtube-downloader:
+    build:
+      context: /srv/homelab/Docker/lidarr-youtube-downloader
+    image: homelab-lidarr-youtube-downloader:explicit-preferred
+    container_name: lidarr-youtube-downloader
+    restart: unless-stopped
+    env_file:
+    - /srv/homelab/Docker/lidarr-youtube-downloader/lidarr-youtube.env
+    ports:
+    - 5058:5000
+    volumes:
+    - /srv/homelab/Docker/lidarr-youtube-downloader/config:/config
+    - /srv/homelab/Docker/Youtarr/config/cookies.user.txt:/cookies/youtarr-cookies.txt
+    - /srv/media/Sort/lidarr-youtube:/downloads
+    - /srv/media/Music:/music
+    depends_on:
+    - lidarr
+    - lidarr-youtube-bgutil
+    networks:
+    - media-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"]
+      interval: 1m
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  lidarr-youtube-fallback:
+    image: python:3.12-alpine
+    container_name: lidarr-youtube-fallback
+    restart: unless-stopped
+    env_file:
+    - /srv/homelab/Docker/lidarr-youtube-downloader/lidarr-youtube.env
+    environment:
+    - LIDSEEKER_DB=/lidseeker/lidseeker.db
+    - STATE_DB=/state/fallback.db
+    - YOUTUBE_DOWNLOADER_URL=http://lidarr-youtube-downloader:5000
+    - CHECK_INTERVAL_SECONDS=60
+    - FALLBACK_MIN_REQUEST_AGE_MINUTES=45
+    - FALLBACK_MIN_LAST_ATTEMPT_AGE_MINUTES=5
+    - FALLBACK_MIN_SEARCH_ATTEMPTS=4
+    - LIDARR_SEARCH_QBIT_GRACE_MINUTES=2
+    - LIDARR_SEARCH_SOULSEEK_GRACE_MINUTES=10
+    - SOULARR_FAILED_IMPORTS_PATH=/soularr/failed_imports.json
+    - SOULARR_FAILED_IMPORT_GRACE_MINUTES=5
+    - SOULARR_FAILED_IMPORT_QUEUE_LIMIT=5
+    - SOULSEEK_COMPLETE_PATH=/soulseek/complete
+    - SOULSEEK_INCOMPLETE_PATH=/soulseek/incomplete
+    - LIDARR_LOG_PATH=/lidarr/logs/lidarr.txt
+    command: ["python", "/app/fallback_worker.py"]
+    volumes:
+    - /srv/homelab/Docker/lidarr-youtube-fallback:/app:ro
+    - /srv/homelab/Docker/lidarr-youtube-fallback/state:/state
+    - /srv/homelab/Docker/lidseeker/data:/lidseeker:ro
+    - /srv/homelab/Docker/lidarr/config/logs:/lidarr/logs:ro
+    - /srv/homelab/Docker/soularr/failed_imports.json:/soularr/failed_imports.json:ro
+    - /srv/media/Sort/SoulseekQT/complete:/soulseek/complete:ro
+    - /srv/media/Sort/SoulseekQT/incomplete:/soulseek/incomplete:ro
+    depends_on:
+    - lidseeker
+    - lidarr-youtube-downloader
+    networks:
+    - media-net
+
+  lidarr-youtube-bgutil:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    container_name: lidarr-youtube-bgutil
+    restart: unless-stopped
+    init: true
+    networks:
+    - media-net
+
+  lidarr:
+    image: linuxserver/lidarr
+    container_name: lidarr
+    mem_limit: 768m
+    environment:
+    - PUID=1000
+    - PGID=1000
+    - TZ=America/Chicago
+    volumes:
+    - /srv/homelab/Docker/lidarr/config:/config
+    - /srv/media/Music:/music
+    - /srv/media/Comedy/Audio:/comedy
+    - /srv/media/Sort/SoulseekQT/complete:/slskd-downloads
+    network_mode: service:gluetun
+    depends_on:
+    - gluetun
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+    - PUID=1000
+    - PGID=1000
+    - TZ=America/Chicago
+    volumes:
+    - /srv/homelab/Docker/sonarr/config:/config
+    - /srv/media/Shows:/tv
+    - /srv/media/Anime:/Anime
+    - /srv/media/Sort/torrents:/downloads
+    network_mode: service:gluetun
+    depends_on:
+    - gluetun
+    restart: unless-stopped
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+    - PUID=1000
+    - PGID=1000
+    - TZ=America/Chicago
+    volumes:
+    - /srv/homelab/Docker/radarr/config:/config
+    - /srv/media/Movies:/movies
+    - /srv/media/Anime-Movies:/Anime-Movies
+    - /srv/media/Comedy/Video:/Stand-Up
+    - /srv/media/Documentaries:/Documentaries
+    - /srv/media/Fights:/Fights
+    - /srv/media/Sort/torrents:/downloads
+    network_mode: service:gluetun
+    depends_on:
+    - gluetun
+    restart: unless-stopped
+
+  picard:
+    image: jlesage/musicbrainz-picard:latest
+    container_name: picard
+    restart: unless-stopped
+    ports:
+    - 5800:5800
+    network_mode: bridge
+    dns:
+    - 1.1.1.1
+    - 8.8.8.8
+    volumes:
+    - /srv/homelab/Docker/picard:/config:rw
+    - /srv/media/Music/:/storage/Music:rw
+    - /srv/media/Music Videos:/storage/Music Videos:rw
+    - /srv/media/Sort/SoulseekQT/complete:/storage/complete:rw
+    - /srv/media/Sort/youtube-dl:/storage/youtube-dl:rw
+    environment:
+    - USER_ID=1000
+    - GROUP_ID=1000
+    - TZ=America/Chicago
+    - KEEP_APP_RUNNING=1
+    - DARK_MODE=1
+
+  beets:
+    build:
+      context: /srv/homelab/Docker/beets
+      args:
+        BEETS_VERSION: "2.14.1"
+    image: homelab-beets:2.14.1
+    container_name: beets
+    profiles: ["tools"]
+    environment:
+    - BEETSDIR=/config
+    - TZ=America/Chicago
+    user: "1000:100"
+    volumes:
+    - /srv/homelab/Docker/beets:/config
+    - /srv/media/Music:/music:rw
+
+  beets-review:
+    build:
+      context: /srv/homelab/Docker/beets-review
+    image: homelab-beets-review:1
+    container_name: beets-review
+    restart: unless-stopped
+    ports:
+    - ${REDACTED_IP}:5059:5059
+    environment:
+    - IMPORT_LOG=/logs/import.log
+    - DATA_DIR=/data
+    - RUNNER_SOCKET=/runner/beets-runner.sock
+    volumes:
+    - /srv/homelab/Docker/beets/import.log:/logs/import.log:ro
+    - /srv/media/Music:/music:ro
+    - /srv/homelab/Docker/beets-review/data:/data
+    - /srv/homelab/Docker/beets-review/run:/runner
+
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:release
+    container_name: immich
+    restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1536m
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      immich-machine-learning:
+        condition: service_started
+    environment:
+      TZ: America/Chicago
+      DB_HOSTNAME: database
+      DB_PORT: 5432
+      DB_USERNAME: immich
+      DB_PASSWORD: "${DB_PASSWORD}"
+      DB_DATABASE_NAME: immich
+      REDIS_HOSTNAME: redis
+      REDIS_PORT: 6379
+      IMMICH_MACHINE_LEARNING_URL: http://immich-machine-learning:3003
+    user: 1000:1000
+    ports:
+    - 2283:2283
+    volumes:
+    - /srv/media/Photos:/data
+    - /srv/homelab/Docker/immich/thumbs:/data/thumbs
+    - /srv/homelab/Docker/immich/encoded-video:/data/encoded-video
+    - /srv/homelab/Docker/immich/profile:/data/profile
+    - /srv/homelab/Docker/immich/backups:/data/backups
+    networks:
+    - media-net
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:release-cuda
+    container_name: immich-ml
+    restart: unless-stopped
+    user: 1000:1000
+    environment:
+      TZ: America/Chicago
+      HOME: /home/immich
+      HF_HOME: /cache/hf
+      HUGGINGFACE_HUB_CACHE: /cache/hf
+      TRANSFORMERS_CACHE: /cache/transformers
+      XDG_CACHE_HOME: /cache/xdg
+      TORCH_HOME: /cache/torch
+      MPLCONFIGDIR: /cache/mpl
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+    - /srv/homelab/Docker/immich/ml-home:/home/immich
+    - /srv/homelab/Docker/immich/ml-cache:/cache
+    networks:
+    - media-net
+    devices:
+    - nvidia.com/gpu=all
+  database:
+    image: pgvector/pgvector:pg16
+    container_name: immich-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: immich
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: immich
+      TZ: America/Chicago
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U immich -d immich || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+    - /srv/homelab/Docker/immich/postgres:/var/lib/postgresql/data
+    networks:
+    - media-net
+  redis:
+    image: redis:7-alpine
+    container_name: immich-redis
+    restart: unless-stopped
+    command:
+    - redis-server
+    - --appendonly
+    - 'yes'
+    environment:
+      TZ: America/Chicago
+    volumes:
+    - /srv/homelab/Docker/immich/redis:/data
+    networks:
+    - media-net
+
+  papra:
+    container_name: papra
+    image: ghcr.io/papra-hq/papra:latest
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 768m
+    ports:
+    - 1221:1221
+    user: 1000:1000
+    environment:
+      APP_BASE_URL: http://${REDACTED_IP}:1221
+      TRUSTED_ORIGINS: http://${REDACTED_IP}:1221,http://${REDACTED_IP}:1221
+      AUTH_SECRET: "${AUTH_SECRET}"
+      DOCUMENT_STORAGE_DRIVER: filesystem
+      DOCUMENT_STORAGE_FILESYSTEM_ROOT: /documents
+    volumes:
+    - /srv/homelab/Docker/papra/app-data:/app/app-data
+    - /srv/media/Documents:/documents
+
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    restart: unless-stopped
+    mem_limit: 768m
+    memswap_limit: 1g
+    cap_add:
+    - NET_ADMIN
+    devices:
+    - /dev/net/tun:/dev/net/tun
+    environment:
+    - VPN_SERVICE_PROVIDER=private internet access
+    - VPN_TYPE=openvpn
+    - OPENVPN_USER="${OPENVPN_USER}"
+    - OPENVPN_PASSWORD="${OPENVPN_PASSWORD}"
+    # US PIA exits lack port forwarding; CA Ontario provides a nearby non-US exit.
+    - SERVER_REGIONS=CA Ontario
+    # PIA assigns and renews a VPN-facing torrent port. Gluetun permits it on tun0.
+    - VPN_PORT_FORWARDING=on
+    - TZ=America/Chicago
+    - FIREWALL_INPUT_PORTS=5030,50300,5056
+    - FIREWALL_OUTBOUND_SUBNETS=${LAN_SUBNET},${DOCKER_SUBNET},${TAILNET_SUBNET}
+    - HTTPPROXY=on
+    volumes:
+    - /srv/homelab/Docker/gluetun:/gluetun
+    ports:
+    - 8085:8085
+    - 8989:8989
+    - 7878:7878
+    - 9696:9696
+    - 8022:8686
+    - 4545:4545
+    - 6881:6881
+    - 6881:6881/udp
+    - 6080:6080
+    - 2234:2234
+    - 2234:2234/udp
+    - 5030:5030
+    - 50300:50300
+    - 5056:80
+    networks:
+    - media-net
+
+  youtarr-pot-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:2.0.0
+    container_name: youtarr-pot-provider
+    restart: unless-stopped
+    init: true
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_started
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+    - gluetun
+    environment:
+    - PUID=1000
+    - PGID=1000
+    - TZ=America/Chicago
+    - WEBUI_PORT=8085
+    volumes:
+    - /srv/homelab/Docker/qbittorrent/config:/config
+    - /srv/media/Sort/torrents:/downloads
+    - /srv/media/Sort/temp:/downloads/incomplete
+    - /srv/homelab//Docker/firefox/config/Downloads:/torrents
+
+  slskd:
+    image: slskd/slskd:latest
+    container_name: slskd
+    restart: unless-stopped
+    user: "1000:100"
+    network_mode: service:gluetun
+    depends_on:
+    - gluetun
+    environment:
+    - TZ=America/Chicago
+    - SLSKD_REMOTE_CONFIGURATION=true
+    - SLSKD_UMASK=002
+    volumes:
+    - /srv/homelab/Docker/slskd:/app
+    - /srv/media/Sort/SoulseekQT/complete:/downloads
+    - /srv/media/Sort/SoulseekQT/incomplete:/incomplete
+    - /srv/media/Books/Magazines:/shares/Magazines:ro
+
+  soularr:
+    image: mrusse08/soularr:latest
+    container_name: soularr
+    hostname: soularr
+    restart: unless-stopped
+    user: "1000:100"
+    depends_on:
+    - lidarr
+    - slskd
+    environment:
+    - TZ=America/Chicago
+    - SCRIPT_INTERVAL=120
+    volumes:
+    - /srv/homelab/Docker/soularr:/data
+    - /srv/media/Sort/SoulseekQT/complete:/downloads
+    networks:
+    - media-net
+# --- Dedicated music discovery stack (isolated VPN path) ---
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+    - gluetun
+    environment:
+    - PUID=1000
+    - PGID=1000
+    - TZ=America/Chicago
+    volumes:
+    - /srv/homelab/Docker/prowlarr/config:/config
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    environment:
+      TZ: America/Chicago
+      SIGNUPS_ALLOWED: "false"
+      DOMAIN: "https://${TAILNET_FQDN}:8443"
+    volumes:
+      - /srv/media/Docker/Vaultwarden:/data
+    ports:
+      - "127.0.0.1:8090:80"
+
+  youtarr-db:
+    image: mariadb:10.11
+    container_name: youtarr-db
+    restart: unless-stopped
+    environment:
+      - MARIADB_DATABASE=youtarr
+      - MARIADB_USER=youtarr
+      - MARIADB_PASSWORD="${MARIADB_PASSWORD}"
+      - MARIADB_ROOT_PASSWORD="${MARIADB_ROOT_PASSWORD}"
+      - TZ=America/Chicago
+    volumes:
+      - /srv/homelab/Docker/Youtarr/db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h localhost -uyoutarr -pchangeme_db --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      - media-net
+
+  youtarr:
+    image: dialmaster/youtarr:latest
+    container_name: youtarr
+    restart: unless-stopped
+    env_file:
+      - /srv/homelab/Docker/Youtarr/.env
+    user: "0:0"
+    depends_on:
+      youtarr-db:
+        condition: service_healthy
+      gluetun:
+        condition: service_started
+      youtarr-pot-provider:
+        condition: service_started
+    ports:
+      - "3087:3087"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - DB_HOST=youtarr-db
+      - DB_PORT=3306
+      - DB_NAME=youtarr
+      - DB_USER=youtarr
+      - DB_PASSWORD="${DB_PASSWORD}"
+      - DATA_PATH=/downloads
+      - TMPDIR=/tmp
+      - TEMP=/tmp
+      - TMP=/tmp
+      - XDG_CACHE_HOME=/tmp
+    volumes:
+      - /srv/homelab/Docker/Youtarr/config:/app/config
+      - /srv/homelab/Docker/Youtarr/jobs:/app/jobs
+      - /srv/media/Docker/Youtarr:/downloads
+      - /srv/homelab/Docker/Youtarr/images:/app/server/images
+      - /srv/homelab/Docker/Youtarr/yt-dlp-plugins:/root/.local/share/yt-dlp/plugins:ro
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 3 http://localhost:3087/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - media-net
+
+  obs-studio:
+    profiles: ["obs"]
+    build:
+      context: /srv/homelab/Docker/obs-studio
+    image: homelab-obs-studio:latest
+    container_name: obs-studio
+    restart: unless-stopped
+    environment:
+      - VNC_PASS="${VNC_PASS}"
+      - LOCALE=en_US.UTF-8
+      - TZ=America/Chicago
+      - KEYBOARD_LAYOUT=us
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility,graphics,display
+    ports:
+      - "6088:6080"
+    group_add:
+      - "26"
+      - "303"
+    devices:
+      - nvidia.com/gpu=all
+      - /dev/dri:/dev/dri
+    volumes:
+      - /srv/homelab/Docker/obs-studio/index.html:/usr/share/novnc/index.html:ro
+      - /srv/homelab/Docker/obs-studio/obs-watchdog.sh:/home/obsuser/obs-watchdog.sh:ro
+      - /srv/homelab/Docker/obs-studio/obs-watchdog.desktop:/home/obsuser/.config/autostart/obs-watchdog.desktop:ro
+      - /srv/homelab/Docker/obs-studio/config:/home/obsuser/.config/obs-studio
+      - /srv/homelab/Docker/obs-studio/recordings:/home/obsuser/Recordings
+      - /srv/media/Sort/OBS:/srv/media/Sort/OBS
+    shm_size: "8gb"
+    tmpfs:
+      - /tmp:exec,mode=1777
+
+  obs-recording-watcher:
+    profiles: ["obs"]
+    image: python:3.12-alpine
+    container_name: obs-recording-watcher
+    restart: unless-stopped
+    depends_on:
+      - obs-studio
+      - jellyfin
+    env_file:
+      - /srv/homelab/downloads/.env
+    environment:
+      TZ: America/Chicago
+      WATCH_DIR: /recordings
+      POLL_SECONDS: "10"
+      STABLE_SECONDS: "120"
+      JELLYFIN_URL: http://jellyfin:8096
+      JELLYFIN_LIBRARY_NAME: recordings
+    command: ["python", "/app/obs_recording_watcher.py"]
+    volumes:
+      - /srv/homelab/Docker/obs-studio/watcher/obs_recording_watcher.py:/app/obs_recording_watcher.py:ro
+      - type: bind
+        source: /srv/media/Sort/OBS/recordings
+        target: /recordings
+        bind:
+          propagation: rshared
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - media-net
+
+  seafile-db:
+    image: mariadb:10.11
+    container_name: seafile-db
+    restart: unless-stopped
+    env_file:
+    - /srv/homelab/Docker/seafile/seafile.env
+    environment:
+      MYSQL_LOG_CONSOLE: "true"
+      MARIADB_AUTO_UPGRADE: "1"
+      TZ: America/Chicago
+    volumes:
+    - /srv/homelab/Docker/seafile/db:/var/lib/mysql
+    networks:
+    - seafile-net
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh", "--connect", "--mariadbupgrade", "--innodb_initialized"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  seafile-redis:
+    image: redis:7.4-alpine
+    container_name: seafile-redis
+    restart: unless-stopped
+    env_file:
+    - /srv/homelab/Docker/seafile/seafile.env
+    command: ["/bin/sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --save \"\" --appendonly no"]
+    volumes:
+    - /srv/homelab/Docker/seafile/redis:/data
+    networks:
+    - seafile-net
+
+  seafile:
+    build:
+      context: /srv/homelab/Docker/seafile/custom
+      dockerfile: Dockerfile
+    image: homelab-seafile-mc-onlyoffice-routing:13.0.25
+    container_name: seafile
+    restart: unless-stopped
+    env_file:
+    - /srv/homelab/Docker/seafile/seafile.env
+    environment:
+      SEAFILE_MYSQL_DB_HOST: seafile-db
+      SEAFILE_MYSQL_DB_PORT: "3306"
+      SEAFILE_MYSQL_DB_USER: seafile
+      SEAFILE_MYSQL_DB_CCNET_DB_NAME: ccnet_db
+      SEAFILE_MYSQL_DB_SEAFILE_DB_NAME: seafile_db
+      SEAFILE_MYSQL_DB_SEAHUB_DB_NAME: seahub_db
+      SEAFILE_SERVER_HOSTNAME: ${REDACTED_IP}:8091
+      SEAFILE_SERVER_PROTOCOL: http
+      # Used only for Document Server's server-to-server file and callback traffic.
+      ONLYOFFICE_INTERNAL_SEAFILE_URL: http://seafile
+      TIME_ZONE: America/Chicago
+      CACHE_PROVIDER: redis
+      REDIS_HOST: seafile-redis
+      REDIS_PORT: "6379"
+      ENABLE_SEADOC: "false"
+      ENABLE_NOTIFICATION_SERVER: "false"
+      ENABLE_SEAFILE_AI: "false"
+      ENABLE_FACE_RECOGNITION: "false"
+      SEAFILE_LOG_TO_STDOUT: "true"
+    ports:
+    - "8091:80"
+    volumes:
+    - /srv/homelab/Docker/seafile/shared:/shared
+    - /srv/media/Docker/Seafile/library:/shared/seafile/seafile-data
+    depends_on:
+      seafile-db:
+        condition: service_healthy
+      seafile-redis:
+        condition: service_started
+    networks:
+    - seafile-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  seafile-onlyoffice:
+    image: onlyoffice/documentserver:9.3.0
+    container_name: seafile-onlyoffice
+    restart: unless-stopped
+    mem_limit: 2g
+    env_file:
+    - /srv/homelab/Docker/seafile/seafile.env
+    environment:
+      JWT_ENABLED: "true"
+      JWT_HEADER: Authorization
+      JWT_IN_BODY: "true"
+      TZ: America/Chicago
+    ports:
+    - "6233:80"
+    volumes:
+    - /srv/homelab/Docker/seafile/onlyoffice/data:/var/lib/onlyoffice
+    - /srv/homelab/Docker/seafile/onlyoffice/logs:/var/log/onlyoffice
+    - /srv/homelab/Docker/seafile/onlyoffice/local-production-linux.json:/etc/onlyoffice/documentserver/local-production-linux.json:ro
+    networks:
+    - seafile-net
