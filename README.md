@@ -11,7 +11,6 @@ The goal is to replace scattered subscriptions, cloud dependencies, and fragile 
 ## Configuration examples
 
 - [Docker Compose stack](config/docker/compose.example.yml)
-- [Docker environment template](config/docker/.env.example)
 - [NixOS configuration](config/nixos/configuration.example.nix)
 - [NixOS hardware template](config/nixos/hardware-configuration.example.nix)
 
