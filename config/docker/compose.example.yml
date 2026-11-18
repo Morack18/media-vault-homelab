@@ -8,8 +8,6 @@ volumes:
 networks:
   media-net:
     driver: bridge
-  sparkyfitness-network:
-    driver: bridge
   matrix_net:
     driver: bridge
   seafile-net:
